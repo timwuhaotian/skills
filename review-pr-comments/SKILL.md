@@ -21,8 +21,8 @@ Address unresolved PR review comments systematically: verify first, fix if valid
 2. For each unresolved thread:
    a. Read the relevant code in the current branch
    b. Verify: is the comment still valid?
-   c. If INVALID → reply explaining why, no code change
-   d. If VALID   → fix code, commit (one commit per comment), reply with commit SHA
+   c. If INVALID → reply explaining why, no code change, then resolve thread
+   d. If VALID   → fix code, commit (one commit per comment), reply with commit SHA, then resolve thread
 3. After all threads are done → ask user whether to push
 ```
 
@@ -37,6 +37,7 @@ gh api graphql -f query='
     pullRequest(number: PR_NUMBER) {
       reviewThreads(first: 100) {
         nodes {
+          id
           isResolved
           comments(first: 1) {
             nodes { databaseId body }
@@ -51,7 +52,7 @@ threads = json.load(sys.stdin)['data']['repository']['pullRequest']['reviewThrea
 for t in threads:
     c = t['comments']['nodes'][0]
     if not t['isResolved']:
-        print(f'id={c[\"databaseId\"]} body={c[\"body\"][:100]}')
+        print(f'threadId={t[\"id\"]} commentId={c[\"databaseId\"]} body={c[\"body\"][:100]}')
 "
 ```
 
@@ -104,7 +105,23 @@ For a non-issue:
 
 > Verified: not applicable to current code. `<file>:<line>` already does `<X>` because `<brief explanation>`. No change needed.
 
-## Step 5 – Ask Before Pushing
+## Step 5 – Resolve Each Thread
+
+After replying, resolve the thread using the GraphQL `resolveReviewThread` mutation. You need the thread's node ID (not the comment's database ID) — fetch it alongside `isResolved` in Step 1.
+
+```bash
+# Resolve a thread (threadId = node ID from GraphQL, e.g. PRRT_kwDO...)
+gh api graphql -f query='
+mutation {
+  resolveReviewThread(input: { threadId: "THREAD_NODE_ID" }) {
+    thread { isResolved }
+  }
+}'
+```
+
+**Order matters:** reply first, then resolve. Resolving without a reply leaves reviewers with no context.
+
+## Step 6 – Ask Before Pushing
 
 After all threads are addressed, **ask the user** whether to push the branch.
 
@@ -114,26 +131,31 @@ Do not push automatically.
 
 ## Common Mistakes
 
-| Mistake                                         | Correct approach                                       |
-| ----------------------------------------------- | ------------------------------------------------------ |
-| Fixing code without reading the file first      | Always read the current file; the diff may be outdated |
-| Resolving threads without replying              | Always reply with evidence before resolving            |
-| Bundling multiple comment fixes into one commit | One commit per comment for clean history               |
-| Pushing to remote without asking                | Always confirm with user first                         |
-| Using REST API to check resolved status         | Use GraphQL `reviewThreads.isResolved`                 |
-| Replying to the wrong comment ID                | Confirm `in_reply_to_id` points to the thread root     |
+| Mistake                                         | Correct approach                                          |
+| ----------------------------------------------- | --------------------------------------------------------- |
+| Fixing code without reading the file first      | Always read the current file; the diff may be outdated    |
+| Resolving threads without replying first        | Reply with evidence, then resolve                         |
+| Replying but forgetting to resolve              | Always resolve after replying — both steps are required   |
+| Bundling multiple comment fixes into one commit | One commit per comment for clean history                  |
+| Pushing to remote without asking                | Always confirm with user first                            |
+| Using REST API to check resolved status         | Use GraphQL `reviewThreads.isResolved`                    |
+| Using comment databaseId to resolve threads     | Resolving requires the thread node ID (e.g. `PRRT_kwDO…`) |
+| Replying to the wrong comment ID                | Confirm `in_reply_to_id` points to the thread root        |
 
 ## Quick Reference
 
 ```bash
-# Check resolved status (GraphQL)
-gh api graphql -f query='{ repository(owner:"O", name:"R") { pullRequest(number:N) { reviewThreads(first:100) { nodes { isResolved comments(first:1) { nodes { databaseId body } } } } } } }'
+# Check resolved status + get thread node IDs (GraphQL)
+gh api graphql -f query='{ repository(owner:"O", name:"R") { pullRequest(number:N) { reviewThreads(first:100) { nodes { id isResolved comments(first:1) { nodes { databaseId body } } } } } } }'
 
 # Get comment details with file/line (REST)
 gh api "repos/O/R/pulls/N/comments?per_page=100"
 
 # Reply to a thread
 gh api repos/O/R/pulls/comments/COMMENT_ID/replies -X POST -f body="MESSAGE"
+
+# Resolve a thread (threadId = node ID, e.g. PRRT_kwDO...)
+gh api graphql -f query='mutation { resolveReviewThread(input: { threadId: "THREAD_NODE_ID" }) { thread { isResolved } } }'
 
 # Commit a single-file fix
 git add path/to/file && git commit -m "fix(scope): description"
