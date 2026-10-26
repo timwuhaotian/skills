@@ -1,0 +1,8 @@
+{
+  "name": "ziwei-doushu-skill",
+  "private": true,
+  "description": "紫微斗数排盘 skill 的依赖清单（iztro）",
+  "dependencies": {
+    "iztro": "^2.6.3"
+  }
+}
