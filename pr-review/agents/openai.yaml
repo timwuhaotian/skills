@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR Review Inline"
+  short_description: "Structured PR review + inline comments"
+  default_prompt: "Use $pr-review to review this PR deeply, submit inline comments for findings, and approve it if clean."
